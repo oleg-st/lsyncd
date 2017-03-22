@@ -31,6 +31,7 @@
 
 #define LSYNCD_LIBNAME "lsyncd"
 #define LSYNCD_INOTIFYLIBNAME "inotify"
+#define LSYNCD_FANOTIFYLIBNAME "fanotify"
 
 /*
 | Workaround to register a library for different lua versions.

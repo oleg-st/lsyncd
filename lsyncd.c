@@ -60,7 +60,9 @@ extern size_t defaults_size;
 */
 #ifndef WITH_INOTIFY
 #ifndef WITH_FSEVENTS
+#ifndef WITH_FANOTIFY
 #	error "needing at least one notification system. please rerun cmake"
+#endif
 #endif
 #endif
 
@@ -75,6 +77,10 @@ static char *monitors[] = {
 
 #ifdef WITH_FSEVENTS
 	"fsevents",
+#endif
+
+#ifdef WITH_FANOTIFY
+	"fanotify",
 #endif
 
 	NULL,
@@ -1584,6 +1590,49 @@ l_terminate( lua_State *L )
 }
 
 /*
+| Init monitor
+|
+| Params on Lua stack:
+|     1:   a string, monitor name
+*/
+static int
+l_init_monitor( lua_State *L )
+{
+	const char * monitor = luaL_checkstring( L, 1 );
+
+#ifdef WITH_INOTIFY
+	if( !strcmp( monitor, "inotify" ) )
+	{
+		open_inotify( L );
+	} else 
+#endif
+#ifdef WITH_FSEVENTS
+	if( !strcmp( monitor, "fsevents" ) ) 
+	{
+		open_fsevents( L );
+	} else 
+#endif
+#ifdef WITH_FANOTIFY 
+	if( !strcmp( monitor, "fanotify" ) )
+	{
+		open_fanotify( L );
+	} 
+#endif
+	else 
+	{
+		printlogf(
+			L, "Error",
+			"Internal error, unknown monitor ( %s )",
+			monitor
+		);
+
+		exit( -1 );
+	}
+
+	return 0;
+}
+
+/*
 | Configures core parameters.
 |
 | Params on Lua stack:
@@ -1836,6 +1885,7 @@ l_nonobserve_fd( lua_State *L )
 static const luaL_Reg lsyncdlib[] =
 {
 	{ "configure",      l_configure     },
+	{ "init_monitor",   l_init_monitor  },
 	{ "exec",           l_exec          },
 	{ "log",            l_log           },
 	{ "now",            l_now           },
@@ -1995,6 +2045,15 @@ register_lsyncd( lua_State *L )
 	register_inotify( L );
 	lua_setfield( L, -2, LSYNCD_INOTIFYLIBNAME );
 	lua_pop( L, 1 );
+
+#endif
+
+#ifdef WITH_FANOTIFY
+
+	lua_getglobal(L, LSYNCD_LIBNAME);
+	register_fanotify(L);
+	lua_setfield(L, -2, LSYNCD_FANOTIFYLIBNAME);
+	lua_pop(L, 1);
 
 #endif
 
@@ -2796,13 +2855,14 @@ main1( int argc, char *argv[] )
 		}
 	}
 
-#ifdef WITH_INOTIFY
-	open_inotify( L );
-#endif
+	load_runner_func(L, "initMonitors");
 
-#ifdef WITH_FSEVENTS
-	open_fsevents( L );
-#endif
+	if (lua_pcall(L, 0, 0, -2))
+	{
+		exit(-1);
+	}
+
+	lua_pop(L, 1);
 
 	// adds signal handlers
 	// listens to SIGCHLD, but blocks it until pselect( )

@@ -3134,8 +3134,15 @@ local Syncs = ( function
 			config.monitor or
 			Monitors.default( )
 
-		if config.monitor ~= 'inotify'
-		and config.monitor ~= 'fsevents'
+		local m, validMonitor = false
+		for _,m in pairs(Monitors.list) do
+			if config.monitor == m then
+				validMonitor = true
+				break
+			end
+		end
+
+		if not validMonitor
 		then
 			local info = debug.getinfo( 3, 'Sl' )
 
@@ -3571,7 +3578,7 @@ local Fsevents = ( function
 	)
 		if syncRoots[ sync ]
 		then
-			error( 'duplicate sync in Fanotify.addSync()' )
+			error( 'duplicate sync in Fsevents.addSync()' )
 		end
 
 		syncRoots[ sync ] = dir
@@ -3689,6 +3696,128 @@ local Fsevents = ( function
 	}
 end )( )
 
+--
+-- Interface to fanotify
+--
+-- This watches mount point at once,
+-- but needs root access.
+-- Only modify events implemented (CLOSEWAIT).
+--
+-- All fanotify specific implementation are enclosed here.
+--
+local Fanotify = ( function
+( )
+
+	--
+	-- A list indexed by syncs yielding
+	-- the root path the sync is interested in.
+	--
+	local syncRoots = { }
+
+--
+	-- Adds watch for a directory
+	--
+	--
+	local function addWatch
+	(
+		path  -- absolute path of directory to observe
+	)
+		log( 'Function', 'Fanotify.addWatch( ', path, ' )' )
+
+		if not Syncs.concerns( path )
+		then
+			log('Fanotify', 'not concerning "', path, '"')
+
+			return
+		end
+
+		-- registers the watch
+		lsyncd.fanotify.addwatch( path ) ;
+	end
+
+	--
+	-- Adds a Sync to receive events.
+	--
+	local function addSync
+	(
+		sync,  -- object to receive events
+		dir    -- dir to watch
+	)
+		if syncRoots[ sync ]
+		then
+			error( 'duplicate sync in Fanotify.addSync()' )
+		end
+
+		syncRoots[ sync ] = dir
+
+		addWatch( dir )
+	end
+
+	--
+	-- Called when an event has occured.
+	--
+	local function event
+	(
+		etype,  --  'Attrib', 'Modify', 'Create', 'Delete', 'Move'
+		isdir,  --  true if filename is a directory
+		time,   --  time of event
+		path    --  path of file
+	)
+		if isdir
+		then
+			path = path .. '/'
+		end
+
+		log(
+			'Fanotify',
+			etype, ',',	
+			isdir, ',',
+			time,  ',',
+			path
+		)
+
+		for _, sync in Syncs.iwalk()
+		do repeat
+
+			local root = sync.source
+
+			-- TODO combine ifs
+			if not path:starts( root )
+			then
+				break  -- continue
+			end
+
+			local relative = splitPath( path, root )
+
+			-- possibly change etype for this iteration only
+			local etyped = etype
+
+			sync:delay( etyped, time, relative, nil )
+
+		until true end
+
+	end
+
+
+	--
+	-- Writes a status report about fanotify to a filedescriptor.
+	--
+	local function statusReport
+	(
+		f
+	)
+		-- TODO
+	end
+
+	--
+	-- Public interface
+	--
+	return {
+		addSync      = addSync,
+		event        = event,
+		statusReport = statusReport
+	}
+end )( )
 
 --
 -- Holds information about the event monitor capabilities
@@ -4675,6 +4804,27 @@ function runner.configure( args, monitors )
 	end
 end
 
+--
+-- Called from core before init.
+--
+function runner.initMonitors( )
+	local s, m
+	local monitors = { }
+
+	-- Init monitors from Syncs or default
+	for _, s in Syncs.iwalk( )
+	do
+		monitors[ s.config.monitor ] = true
+	end
+
+	if Syncs.size( ) == 0 then
+		monitors[ Monitors.default( ) ] = true
+	end
+
+    for m, _ in pairs(monitors) do 
+		lsyncd.init_monitor( m )
+	end
+end
 
 --
 -- Called from core on init or restart after user configuration.
@@ -4861,6 +5011,9 @@ function runner.initialize( firstTime )
 		elseif s.config.monitor == 'fsevents'
 		then
 			Fsevents.addSync( s, s.source )
+		elseif s.config.monitor == 'fanotify'
+		then
+			Fanotify.addSync( s, s.source )
 		else
 			error(
 				'sync ' ..
@@ -4962,6 +5115,7 @@ end
 --
 -- Called when an file system monitor events arrive
 --
+runner.fanotifyEvent = Fanotify.event
 runner.inotifyEvent = Inotify.event
 runner.fsEventsEvent = Fsevents.event
 

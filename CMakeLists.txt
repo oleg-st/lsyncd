@@ -16,11 +16,16 @@ set( LSYNCD_SRC lsyncd.c runner.c defaults.c )
 
 # selecting the file notification mechanisms to compile against
 option( WITH_INOTIFY "Compile with inotify file notifications (Linux)" ON )
+option( WITH_FANOTIFY "Compile with fanotify file notifications (Linux)" ON )
 option( WITH_FSEVENTS "Compile with inotify file notifications (OSX)" OFF )
 
 if( WITH_INOTIFY )
 	set( LSYNCD_SRC ${LSYNCD_SRC} inotify.c )
 endif( WITH_INOTIFY )
+
+if( WITH_FANOTIFY )
+       set( LSYNCD_SRC ${LSYNCD_SRC} fanotify.c )
+endif( WITH_FANOTIFY )
 
 if( WITH_FSEVENTS )
 	set( LSYNCD_SRC ${LSYNCD_SRC} fsevents.c )
