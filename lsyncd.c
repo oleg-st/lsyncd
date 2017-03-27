@@ -82,6 +82,7 @@ static char *monitors[] = {
 #ifdef WITH_FANOTIFY
 	"fanotify",
 #endif
+	"custom",
 
 	NULL,
 };
@@ -1616,9 +1617,11 @@ l_init_monitor( lua_State *L )
 	if( !strcmp( monitor, "fanotify" ) )
 	{
 		open_fanotify( L );
-	} 
+	} else
 #endif
-	else 
+	if( !strcmp( monitor, "custom" ) )
+	{
+	} else 
 	{
 		printlogf(
 			L, "Error",
@@ -2291,6 +2294,7 @@ masterloop(lua_State *L)
 				int pi, pr;
 
 				sigemptyset( &sigset );
+
 				FD_ZERO( &rfds );
 				FD_ZERO( &wfds );
 
@@ -2308,22 +2312,12 @@ masterloop(lua_State *L)
 					}
 				}
 
-				if( !observances_len )
-				{
-					logstring(
-						"Error",
-						"Internal fail, no observances, no monitor!"
-					);
-
-					exit( -1 );
-				}
-
 				// the great select, this is the very heart beat of Lsyncd
 				// that puts Lsyncd to sleep until anything worth noticing
 				// happens
 
 				pr = pselect(
-					observances[ observances_len - 1 ].fd + 1,
+					observances_len ? observances[ observances_len - 1 ].fd + 1 : 0,
 					&rfds,
 					&wfds,
 					NULL,

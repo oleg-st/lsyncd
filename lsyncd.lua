@@ -3714,7 +3714,7 @@ local Fanotify = ( function
 	--
 	local syncRoots = { }
 
---
+	--
 	-- Adds watch for a directory
 	--
 	--
@@ -3818,6 +3818,119 @@ local Fanotify = ( function
 		statusReport = statusReport
 	}
 end )( )
+
+
+--
+-- Custom monitor
+--
+Custom = ( function
+( )
+
+	--
+	-- A list indexed by syncs yielding
+	-- the root path the sync is interested in.
+	--
+	local syncRoots = { }
+
+	--
+	-- Adds a Sync to receive events.
+	--
+	local function addSync
+	(
+		sync,  -- object to receive events
+		dir    -- dir to watch
+	)
+		if syncRoots[ sync ]
+		then
+			error( 'duplicate sync in Custom.addSync()' )
+		end
+
+		syncRoots[ sync ] = dir
+	end
+
+	--
+	-- Called when an event has occured.
+	--
+	local function event
+	(
+		etype,  --  'Attrib', 'Modify', 'Create', 'Delete', 'Move'
+		isdir,  --  true if filename is a directory
+		time,   --  time of event
+		path,   --  path of file
+		path2   --  path of target in case of 'Move'
+	)
+		if isdir
+		then
+			path = path .. '/'
+
+			if path2
+			then
+				path2 = path2 .. '/'
+			end
+		end
+
+		log(
+			'Custom',
+			etype, ',',
+			isdir, ',',
+			time,  ',',
+			path,  ',',
+			path2
+		)
+
+		for _, sync in Syncs.iwalk()
+		do repeat
+
+			local root = sync.source
+
+			-- TODO combine ifs
+			if not path:starts( root )
+			then
+				if not path2 or not path2:starts( root )
+				then
+					break  -- continue
+				end
+			end
+
+			local relative = splitPath( path, root )
+
+			local relative2
+
+			if path2
+			then
+				relative2 = splitPath( path2, root )
+			end
+
+			-- possibly change etype for this iteration only
+			local etyped = etype
+
+			sync:delay( etyped, time, relative, relative2 )
+
+		until true end
+
+	end
+
+
+	--
+	-- Writes a status report to a filedescriptor.
+	--
+	local function statusReport
+	(
+		f
+	)
+		-- TODO
+	end
+
+	--
+	-- Public interface
+	--
+	return {
+		addSync      = addSync,
+		event        = event,
+		statusReport = statusReport
+	}
+end )( )
+
 
 --
 -- Holds information about the event monitor capabilities
@@ -5014,6 +5127,9 @@ function runner.initialize( firstTime )
 		elseif s.config.monitor == 'fanotify'
 		then
 			Fanotify.addSync( s, s.source )
+		elseif s.config.monitor == 'custom'
+		then
+			Custom.addSync( s, s.source )
 		else
 			error(
 				'sync ' ..
